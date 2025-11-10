@@ -1,0 +1,235 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+enum MoodMetric {
+  FOOD
+  DRINKS
+  AMBIENCE
+  SERVICE
+}
+
+enum NotificationType {
+  NEW_CAFE_NEARBY
+  FRIEND_REVIEW
+  NEW_FOLLOWER
+  WEEKLY_RECOMMENDATION
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  name              String
+  phoneNumber       String?   @map("phone_number")
+  birthday          DateTime? @map("birthday")
+  personalityType   String?   @map("personality_type") // MBTI type: ENTP, ENFJ, etc.
+  profilePictureUrl String?   @map("profile_picture_url")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  preferences    UserPreferences?
+  reviews        Review[]
+  followers      Follow[]           @relation("UserFollowers")
+  following      Follow[]           @relation("UserFollowing")
+  notifications  Notification[]
+  cafeFollows    CafeFollow[]
+  personalMenu   PersonalMenuItem[]
+  savedCafes     SavedCafe[]
+  visitedCafes   VisitedCafe[]
+
+  @@map("users")
+}
+
+model UserPreferences {
+  id                   String      @id @default(uuid())
+  userId               String      @unique @map("user_id")
+  currentMoodMetric    MoodMetric? @map("current_mood_metric")
+  preferredRadiusKm    Float       @default(5.0) @map("preferred_radius_km")
+  lastMoodUpdate       DateTime?   @map("last_mood_update")
+  notifyNewCafes       Boolean     @default(true) @map("notify_new_cafes")
+  notifyFriendActivity Boolean     @default(true) @map("notify_friend_activity")
+  notifyWeekly         Boolean     @default(true) @map("notify_weekly")
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model Cafe {
+  id            String   @id @default(uuid())
+  googlePlaceId String   @unique @map("google_place_id")
+  name          String
+  address       String
+  latitude      Float
+  longitude     Float
+  photos        String[] // Array of photo URLs
+  cachedAt      DateTime @default(now()) @map("cached_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  ratings      CafeRatings?
+  reviews      Review[]
+  followers    CafeFollow[]
+  savedBy      SavedCafe[]
+  visitedBy    VisitedCafe[]
+
+  @@index([latitude, longitude])
+  @@map("cafes")
+}
+
+model CafeRatings {
+  id           String   @id @default(uuid())
+  cafeId       String   @unique @map("cafe_id")
+  avgFood      Float    @default(0.0) @map("avg_food")
+  avgDrinks    Float    @default(0.0) @map("avg_drinks")
+  avgAmbience  Float    @default(0.0) @map("avg_ambience")
+  avgService   Float    @default(0.0) @map("avg_service")
+  totalReviews Int      @default(0) @map("total_reviews")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@map("cafe_ratings")
+}
+
+model Review {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  cafeId         String   @map("cafe_id")
+  foodRating     Float    @map("food_rating") // 1-5 scale
+  drinksRating   Float    @map("drinks_rating")
+  ambienceRating Float    @map("ambience_rating")
+  serviceRating  Float    @map("service_rating")
+  comment        String?
+  photos         String[] // Array of photo URLs
+  moodTags       String[] @default([]) @map("mood_tags") // e.g., ["study", "date night", "work meeting"]
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@index([cafeId, createdAt])
+  @@index([userId])
+  @@map("reviews")
+}
+
+model Follow {
+  id          String   @id @default(uuid())
+  followerId  String   @map("follower_id")
+  followingId String   @map("following_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  follower  User @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  body      String
+  data      Json? // Additional metadata as JSON
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model CafeFollow {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  cafeId    String   @map("cafe_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cafeId])
+  @@index([userId])
+  @@index([cafeId])
+  @@map("cafe_follows")
+}
+
+model PersonalMenuItem {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  cafePlaceId     String   @map("cafe_place_id") // Google Place ID
+  cafeName        String   @map("cafe_name")
+  itemName        String   @map("item_name") // Name of food/drink
+  itemType        String   @map("item_type") // "food" or "drink"
+  rating          Float // 1-5 scale
+  photos          String[] // Array of photo URLs
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([cafePlaceId])
+  @@map("personal_menu_items")
+}
+
+model SavedCafe {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  cafeId    String   @map("cafe_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cafeId])
+  @@index([userId])
+  @@index([cafeId])
+  @@map("saved_cafes")
+}
+
+model VisitedCafe {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  cafeId    String   @map("cafe_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cafe Cafe @relation(fields: [cafeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cafeId])
+  @@index([userId])
+  @@index([cafeId])
+  @@map("visited_cafes")
+}
